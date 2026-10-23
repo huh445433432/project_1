@@ -1,0 +1,128 @@
+ калькулятор калорий для блюд из таблицы csv 
+
+import csv
+import re
+from pathlib import Path
+
+CSV_FILE = "products.csv"
+
+
+def find_product_by_name(search_query):
+    """
+    Ищет частичное совпадение по названию. Возвращает список найденных строк.
+    """
+    results = []
+    query_lower = search_query.lower().strip()
+
+    if not Path(CSV_FILE).exists():
+        return results, "Файл базы не найден. Сначала нужно собрать данные и создать products.csv."
+
+    with open(CSV_FILE, "r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name_lower = row["name"].lower()
+            if query_lower in name_lower:
+                results.append(row)
+
+    return results, None
+
+
+def parse_input(user_text):
+    """
+    Извлекает название блюда и вес в граммах из строки пользователя.
+    Примеры: "крабовый салат 500", "гречка 200 г", "сыр 150гр"
+    Возвращает: (название_без_цифр, вес_в_граммах)
+    """
+    # Ищем число (вес) в конце строки. Поддерживаем варианты: 500, 500г, 500 гр, 500g
+    match = re.search(r'(\d+(?:\.\d+)?)\s*(?:г|гр|g|grams)?\s*$', user_text.strip(), re.IGNORECASE)
+
+    if match:
+        weight = float(match.group(1))
+        # Убираем число и единицы измерения из названия
+        dish_name = re.sub(r'\d+(?:\.\d+)?\s*(?:г|гр|g|grams)?', '', user_text, flags=re.IGNORECASE).strip()
+        return dish_name, weight
+    else:
+        # Если числа нет, считаем, что пользователь хочет узнать данные на 100 г, или просим уточнить
+        return user_text.strip(), None
+
+
+def calculate_nutrition(item, weight_grams):
+    """
+    Считает итоговые калории и БЖУ для заданного веса.
+    item — строка из CSV (словарь)
+    weight_grams — вес порции в граммах
+    """
+    kcal_100 = float(item["calories_per_100g"])
+    protein_100 = float(item["protein_per_100g"])
+    fat_100 = float(item["fat_per_100g"])
+    carbs_100 = float(item["carbs_per_100g"])
+
+    factor = weight_grams / 100.0
+
+    return {
+        "total_kcal": kcal_100 * factor,
+        "total_protein": protein_100 * factor,
+        "total_fat": fat_100 * factor,
+        "total_carbs": carbs_100 * factor,
+    }
+
+
+def main():
+    print("=== Калькулятор калорий: поиск по базе и расчёт порции ===")
+    print("Формат ввода: [Название блюда] [Вес в граммах]")
+    print("Примеры: 'крабовый салат 500', 'гречка 200г', 'сыр 150'\n")
+
+    while True:
+        user_input = input("Введите блюдо и вес (или 'quit' для выхода): ").strip()
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("До свидания!")
+            break
+        if not user_input:
+            continue
+
+        # 1. Разбираем ввод: отделяем название от веса
+        dish_query, weight = parse_input(user_input)
+
+        if not dish_query:
+            print("⚠️ Не удалось распознать название блюда. Попробуйте ещё раз.")
+            continue
+
+        if weight is None:
+            print(f"⚠️ В вашем запросе не указан вес. Пожалуйста, напишите вес в граммах, например: '{dish_query} 200'")
+            continue
+
+        if weight <= 0:
+            print("⚠️ Вес должен быть больше 0.")
+            continue
+
+        # 2. Ищем блюдо в базе
+        matches, error = find_product_by_name(dish_query)
+
+        if error:
+            print(f"⚠️ {error}")
+            continue
+
+        if not matches:
+            # Пробуем найти, даже если пользователь ввёл только часть названия без веса
+            # Но здесь мы уже знаем, что веса нет в matches, значит, блюда нет
+            print(f"⚠️ Ничего не найдено для: '{dish_query}'. Проверьте написание.")
+            # Можно предложить показать похожие варианты, если нужно
+            continue
+
+        # Если найдено несколько вариантов, берём первый (или можно сделать выбор)
+        chosen_item = matches[0]
+
+        # Для наглядности покажем, какое именно блюдо мы взяли
+        print(f"\n✅ Найдено: {chosen_item['name']} ({chosen_item['category']})")
+        print(f"   Калорийность на 100 г: {float(chosen_item['calories_per_100g']):.1f} ккал")
+        # 3. Считаем для нужного веса
+        result = calculate_nutrition(chosen_item, weight)
+
+        print("\n📊 Итого для порции:")
+        print(f"Вес: {weight:.1f} г")
+        print(f"Калории: {result['total_kcal']:.1f} ккал")
+        print("-" * 40)
+
+
+if __name__ == "__main__":
+   main()
